@@ -500,6 +500,7 @@ function buildFighter(cfg){
   headG.add(box(hw-.06,.08,.1, skin,0,0,.1));                        // 턱
   headG.add(box(.05,.035,.02, 0x181818,-.065,.18,.135));             // 눈
   headG.add(box(.05,.035,.02, 0x181818, .065,.18,.135));
+  const mouth = box(.09,.022,.03, 0x3a1412, 0,.045,.135); headG.add(mouth);  // 입 (말할 때 움직임)
   if(fem){                                                            // 여성 얼굴: 속눈썹 + 입술
     headG.add(box(.065,.012,.02, 0x181818,-.062,.205,.14));
     headG.add(box(.065,.012,.02, 0x181818, .062,.205,.14));
@@ -577,7 +578,7 @@ function buildFighter(cfg){
     kn.add(box(.18,.11,.34, cfg.shoe,0,-.42,.06));
     return {hip,kn};
   }
-  const parts = { body, torsoG, headG, aL:arm(-1), aR:arm(1), lL:leg(-1), lR:leg(1) };
+  const parts = { body, torsoG, headG, mouth, aL:arm(-1), aR:arm(1), lL:leg(-1), lR:leg(1) };
   const shadow = new THREE.Mesh(new THREE.CircleGeometry(.5,14),
     new THREE.MeshBasicMaterial({color:0x6a5838, transparent:true, opacity:.45}));
   shadow.rotation.x = -Math.PI/2; shadow.position.y = .02; scene.add(shadow);
@@ -907,11 +908,11 @@ function poseFor(f, time){
     }
     case 'fall':
       P.bl=-t*5; P.bt=0; P.aLs=-2.8; P.aRs=-2.8; P.lLh=-.6; P.lRh=-.9; P.lLk=.9; P.lRk=1.2; break;
-    case 'win': {   // 스크린샷 2 — 두 팔을 V자로 번쩍!
+    case 'win': {   // 승리 포즈 — 팔을 V자로, 얼굴은 정면(대사)
       const b = Math.sin(time*7)*.05;
-      P.aLs=-2.95+b; P.aLe=-.18; P.aLz=-.42;
-      P.aRs=-2.95-b; P.aRe=-.18; P.aRz=.42;
-      P.bl=-.1; P.bt=0; P.by+=.04+Math.abs(b)*.5; P.hd=-.3;
+      P.aLs=-2.55+b; P.aLe=-.25; P.aLz=-.5;
+      P.aRs=-2.55-b; P.aRe=-.25; P.aRz=.5;
+      P.bl=-.05; P.bt=0; P.by+=.03+Math.abs(b)*.4; P.hd=.02;   // 고개 정면 (얼굴 보이게)
       P.lLh=-.1; P.lRh=.1;
       break;
     }
@@ -930,6 +931,12 @@ function applyPose(f, dt, time){
   L(p.aR.sh.rotation,'x',P.aRs); L(p.aR.sh.rotation,'z',P.aRz); L(p.aR.el.rotation,'x',P.aRe);
   L(p.lL.hip.rotation,'x',P.lLh); L(p.lL.kn.rotation,'x',P.lLk);
   L(p.lR.hip.rotation,'x',P.lRh); L(p.lR.kn.rotation,'x',P.lRk);
+  // 입 — 말하는 중이면 벌렸다 닫았다
+  if(p.mouth){
+    if(f.talking){ f.talkT -= dt; if(f.talkT<=0) f.talking=false; }
+    const open = f.talking ? (0.5+0.5*Math.sin(time*30))*6 : 0;
+    p.mouth.scale.y = 1 + open; p.mouth.scale.z = 1 + open*0.25;
+  }
 }
 
 // ============================================================ 이펙트 / 사운드
@@ -969,6 +976,29 @@ const sfx = {
   start:()=>{ beep(440,.1,'square',.07); setTimeout(()=>beep(660,.18,'square',.07),110); },
   win:  ()=>{ [523,659,784,1047].forEach((f,i)=>setTimeout(()=>beep(f,.16,'square',.06),i*120)); }
 };
+
+// ── 승리 대사 (TTS)
+const WINLINES = ['10년 멀었다.', '넌 이미 죽어 있다.', '더 배우고 와라.',
+  '이게 끝이냐?', '수련이 부족하군.', '다시 덤벼라.', '내 상대가 못 되는군.'];
+if(window.speechSynthesis){ try{ speechSynthesis.getVoices(); }catch(e){} }   // 보이스 미리 로드
+function speak(f, text){
+  f.talking = true;
+  f.talkT = Math.max(1.6, text.length*0.16);     // TTS 실패 대비 입 움직임 시간
+  try{
+    if(!window.speechSynthesis) return;
+    speechSynthesis.cancel();
+    const u = new SpeechSynthesisUtterance(text);
+    u.lang = 'ko-KR';
+    u.rate = 0.95;
+    u.pitch = (f.cfg && f.cfg.build==='female') ? 1.35 : 0.7;   // 여성은 높은 톤
+    const vs = speechSynthesis.getVoices();
+    const kv = vs.find(v=>v.lang && v.lang.toLowerCase().indexOf('ko')===0);
+    if(kv) u.voice = kv;
+    u.onstart = ()=>{ f.talking = true; };
+    u.onend   = ()=>{ f.talking = false; };
+    speechSynthesis.speak(u);
+  }catch(e){}
+}
 
 // ============================================================ 입력
 const keys = {};
@@ -1153,9 +1183,10 @@ function controlFighter(f, foe, dt){
     const M = f.moves || {};
     if(i.up && !f.prev.up){ f.state='jump'; f.stateT=0; f.vy=5.7; sfx.jump(); }
     else if(i.punch && !f.prev.punch){                               // 손(J) 조합
-      if(f.gbuf>0){                                                  // 가드+손 = 잡기(근접시 성립)
-        const close = Math.abs(f.x-foe.x) < 1.7;
-        const grabbable = ['idle','walk','guard','crouch','hit'].includes(foe.state);
+      if(f.gbuf>0){                                                  // 가드+손 = 잡기(근접시 성립, 방어도 잡아버림)
+        const close = Math.abs(f.x-foe.x) < 2.4;                      // 넉넉한 잡기 사거리
+        const grabbable = !['down','getup','fall','roll','thrown','throw'].includes(foe.state)
+                          && !AIR.includes(foe.state);               // 지상이면 방어·공격 중이라도 잡힘
         const type = back ? 'suplex' : (i.down ? 'slam' : 'spin');   // 뒤=뒤로꽂기, 아래=내리꽂기, 기본=돌려던지기
         startThrow(f, (close && grabbable && phase==='fight') ? foe : null, type);
       }
@@ -1373,7 +1404,8 @@ let koWinner = null, koLoser = null, orbitAng = 0;
 function resetPositions(){
   P1.x=-2.2; P2.x=2.2;
   [P1,P2].forEach(f=>{ f.hp=100; f.vx=0; f.vy=0; f.y=0; f.state='idle'; f.stateT=0;
-    f.buf=null; f.comboN=0; f.comboT=0; });
+    f.buf=null; f.comboN=0; f.comboT=0; f.talking=false; f.grabFoe=null; f.thrType=null; });
+  try{ if(window.speechSynthesis) speechSynthesis.cancel(); }catch(e){}
   hudHP.a = hudHP.b = 100;
   fightTime = 30; roundElapsed = 0;
   $('combo').style.display='none';
@@ -1411,6 +1443,9 @@ function endRound(){
   phase='roundend'; phaseT=0;
   showMsg('WINNER', koWinner.name, 2.4);
   sfx.win();
+  const line = WINLINES[(Math.random()*WINLINES.length)|0];   // 승리 대사 + 입 움직임
+  if(koLoser) koLoser.talking=false;
+  setTimeout(()=>{ if(phase==='roundend'||phase==='matchend') speak(koWinner, line); }, 650);
 }
 function timeOver(){
   const winner = P1.hp >= P2.hp ? P1 : P2;
@@ -1595,12 +1630,13 @@ function loop(){
     const r = 4.6*Math.min(fit,1.5);
     camera.position.set(tx+Math.sin(orbitAng)*r, ty+1.4, Math.cos(orbitAng)*r);
     camera.lookAt(tx, ty, 0);
-  } else if(phase==='roundend' && koWinner){
-    // 스크린샷 2 — 승자 로우앵글 클로즈업
-    const w = koWinner;
-    const zoom = Math.max(2.6, 3.8 - phaseT*.5);
-    camera.position.set(w.x + w.facing*.3, 1.35, zoom);
-    camera.lookAt(w.x, 1.55, 0);
+  } else if((phase==='roundend'||phase==='matchend') && koWinner){
+    // 승자 얼굴 클로즈업 (대사/입모양이 잘 보이게)
+    const w = koWinner; const bs = w.bodyScale||1;
+    const hy = 1.78*bs;
+    const dist = Math.max(1.35, 1.75 - phaseT*.18);   // 천천히 얼굴로 다가감
+    camera.position.set(w.x + w.facing*dist, hy+0.10, 0.82);
+    camera.lookAt(w.x + w.facing*0.12, hy-0.04, 0);
   } else {
     const mid = (P1.x+P2.x)/2;
     const sep = Math.abs(P1.x-P2.x);
@@ -1618,7 +1654,8 @@ function loop(){
 loop();
 
 // ── 디버그: 8인 모델 한 장으로 렌더 (검증용)
-window.__VF = { THREE, scene, ROSTER, MOVES, keys,
+window.__VF = { THREE, scene, ROSTER, MOVES, keys, WINLINES,
+  testSpeak:(idx)=>{ const f=P1; speak(f, WINLINES[idx||0]); return {talking:f.talking, talkT:f.talkT, speaking:(window.speechSynthesis&&speechSynthesis.speaking)}; },
   readInput:()=>{ readP1(); return JSON.parse(JSON.stringify(P1.input)); },
   testCmd:(spec)=>{   // {press:'GP'|'P'|'K'.., dir:'F'|'B'|'U'|'D', gap, self:'idle'|'down'|'jump', foe:'idle'|'down'}
     spec=spec||{}; const savePhase=phase; phase='fight';
