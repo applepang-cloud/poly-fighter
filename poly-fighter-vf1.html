@@ -691,7 +691,7 @@ const ATK = {
   dashpunch:{su:.07, ac:.12, rc:.30, range:1.95, dmg:9,  push:7.0, down:false, hy:1.35, high:false, lunge:6.2},
   dashkick :{su:.10, ac:.14, rc:.46, range:2.25, dmg:15, push:11,  down:true,  hy:1.15, high:false, lunge:7.0},
   // 다운된 적에게 내려찍기 (oki=쓰러진 적도 타격)
-  stomp    :{su:.02, ac:.6,  rc:.18, range:1.5,  dmg:11, push:5.0, down:true,  hy:.4,   high:false, lunge:0, oki:true}
+  stomp    :{su:.02, ac:.6,  rc:.18, range:1.9,  dmg:11, push:5.0, down:true,  hy:.4,   high:false, lunge:0, oki:true}
 };
 // 잡기(던지기) 종류
 const THROW = {
@@ -1021,8 +1021,8 @@ function updateAI(f, foe, dt){
   if(f.state==='punch2' && f.hitDone && f.stateT > ATK.punch2.su+ATK.punch2.ac*.5 && Math.random()<.85){ i.kick=true; return; }
   if(f.state==='jump' && f.vy < 1.2 && dist < 2.6){ i.kick = Math.random()<.6; i.punch = !i.kick; return; }
   if(AIR.includes(f.state)){ if(foe.x>f.x) i.right=true; else i.left=true; return; }
-  if(f.state==='down'){                                  // 기상 선택: 공격/구르기
-    if(f.y<=0 && f.stateT>0.42 && Math.random()<0.10){
+  if(f.state==='down'){                                  // 기상 선택: 가끔만 (스톰프 노릴 틈을 줌)
+    if(f.y<=0 && f.stateT>0.6 && Math.random()<0.03){
       const r=Math.random();
       if(r<.35) i.kick=true;                              // 기상 발
       else if(r<.55) i.punch=true;                        // 기상 손
@@ -1143,6 +1143,9 @@ function controlFighter(f, foe, dt){
   if(st==='punch'  && i.punch && !f.prev.punch) f.buf='punch2';
   if(st==='punch2' && i.kick  && !f.prev.kick)  f.buf='chainkick';
 
+  // 가드 입력 버퍼 (가드를 살짝 먼저/늦게 눌러도 잡기 인식)
+  if(i.guard) f.gbuf = 0.16; else f.gbuf = Math.max(0, (f.gbuf||0) - dt);
+
   if(canAct){
     f.facing = foe.x >= f.x ? 1 : -1;
     const fwd  = (i.right && f.facing>0) || (i.left && f.facing<0);   // 앞(상대쪽)
@@ -1150,8 +1153,8 @@ function controlFighter(f, foe, dt){
     const M = f.moves || {};
     if(i.up && !f.prev.up){ f.state='jump'; f.stateT=0; f.vy=5.7; sfx.jump(); }
     else if(i.punch && !f.prev.punch){                               // 손(J) 조합
-      if(i.guard){                                                   // 가드+손 = 잡기(근접시 성립)
-        const close = Math.abs(f.x-foe.x) < 1.25;
+      if(f.gbuf>0){                                                  // 가드+손 = 잡기(근접시 성립)
+        const close = Math.abs(f.x-foe.x) < 1.7;
         const grabbable = ['idle','walk','guard','crouch','hit'].includes(foe.state);
         const type = back ? 'suplex' : (i.down ? 'slam' : 'spin');   // 뒤=뒤로꽂기, 아래=내리꽂기, 기본=돌려던지기
         startThrow(f, (close && grabbable && phase==='fight') ? foe : null, type);
@@ -1192,15 +1195,15 @@ function controlFighter(f, foe, dt){
     f.x += dir*2.7*dt;
     if(f.state==='jpunch') f.x += f.facing*1.4*dt;
     if(f.state==='jkick')  f.x += f.facing*2.2*dt;
-    if(f.state==='stomp'){ f.x += Math.sign(foe.x-f.x)*Math.min(Math.abs(foe.x-f.x), 5*dt); } // 다운된 적 위로
+    if(f.state==='stomp'){ f.x += (foe.x-f.x)*Math.min(1, 9*dt); }  // 다운된 적 위로 강하게 호밍
     f.x = Math.max(-RINGX, Math.min(RINGX, f.x));
     if(f.state==='jump'){
-      const foeDown = foe.state==='down'||foe.state==='fall';
+      const foeDown = foe.state==='down'||foe.state==='fall'||foe.state==='getup';
       if(i.punch && !f.prev.punch){ f.state = foeDown?'stomp':'jpunch'; f.stateT=0; f.hitDone=false; sfx.whiff(); }
       else if(i.kick && !f.prev.kick){ f.state = foeDown?'stomp':'jkick'; f.stateT=0; f.hitDone=false; sfx.whiff(); }
     }
     f.vy -= (f.state==='stomp'?20:13)*dt; f.y += f.vy*dt;       // 내려찍기는 빠르게 낙하
-    if(f.state==='stomp' && !f.hitDone && f.y<1.3) tryHit(f, foe, ATK.stomp);
+    if(f.state==='stomp' && !f.hitDone && f.y<1.5) tryHit(f, foe, ATK.stomp);
     if(f.y <= 0 && f.vy < 0){ f.y=0; f.vy=0;
       if(f.state==='stomp'){ spark(f.x,.15,0xd8c088,.45); shake=Math.max(shake,.25); }
       f.state='idle'; f.stateT=0; }
@@ -1627,8 +1630,9 @@ window.__VF = { THREE, scene, ROSTER, MOVES, keys,
     const d=spec.dir||''; if(d==='F')i.right=true; if(d==='B')i.left=true; if(d==='U')i.up=true; if(d==='D')i.down=true;
     const p=spec.press||''; if(p.indexOf('G')>=0)i.guard=true; if(p.indexOf('P')>=0)i.punch=true; if(p.indexOf('K')>=0)i.kick=true;
     P1.prev.punch=false; P1.prev.kick=false; P1.prev.up=false;
-    controlFighter(P1,P2,0.016);
-    const res={p1:P1.state, thr:P1.thrType||null, move:(P1.mv&&P1.mv.name)||null, p2:P2.state};
+    const hp0=P2.hp; const frames=spec.frames||1;
+    for(let n=0;n<frames;n++){ controlFighter(P1,P2,0.016); if(n>0){P1.prev.punch=i.punch;P1.prev.kick=i.kick;} }
+    const res={p1:P1.state, thr:P1.thrType||null, move:(P1.mv&&P1.mv.name)||null, p2:P2.state, dmg:Math.round(hp0-P2.hp)};
     phase=savePhase; return res;
   } };
 window.__contact = function(pose, idxs, camZ, camY){
