@@ -243,8 +243,8 @@
       </div>
       <div id="insertcoin">INSERT COIN(S)</div>
       <div id="movelist">
-        <b>A D</b>이동 <b>W</b>점프 <b>S</b>앉기 · <b>H</b>가드 <b>J</b>손 <b>K</b>발<br>
-        <b>앞+J / 앞+K / 가드+J</b> = 캐릭터별 특수기술! · <b>J·J·K</b> 콤보
+        <b>A D</b>이동 <b>W</b>점프 <b>S</b>앉기 · <b>H</b>가드 <b>J</b>손 <b>K</b>발 · 앞+J/K=특수기술<br>
+        <b>가드+J</b>=잡기(뒤=백드롭·아래=내리꽂기) · 다운중 <b>J/K</b>=기상공격 <b>방향</b>=구르기 · 쓰러진적 <b>점프+공격</b>=내려찍기
       </div>
       <div id="credit0">CREDIT 0</div>
       <div id="copyright">© 1993 HOMAGE</div>
@@ -689,9 +689,17 @@ const ATK = {
   ckick    :{su:.18, ac:.13, rc:.46, range:1.95, dmg:10, push:6.0, down:true,  hy:.35,  high:false, lunge:2.4},
   // 특수기술 — 이동 중 펀치/킥 (대시 공격)
   dashpunch:{su:.07, ac:.12, rc:.30, range:1.95, dmg:9,  push:7.0, down:false, hy:1.35, high:false, lunge:6.2},
-  dashkick :{su:.10, ac:.14, rc:.46, range:2.25, dmg:15, push:11,  down:true,  hy:1.15, high:false, lunge:7.0}
+  dashkick :{su:.10, ac:.14, rc:.46, range:2.25, dmg:15, push:11,  down:true,  hy:1.15, high:false, lunge:7.0},
+  // 다운된 적에게 내려찍기 (oki=쓰러진 적도 타격)
+  stomp    :{su:.02, ac:.6,  rc:.18, range:1.5,  dmg:11, push:5.0, down:true,  hy:.4,   high:false, lunge:0, oki:true}
 };
-const AIR = ['jump','jpunch','jkick'];
+// 잡기(던지기) 종류
+const THROW = {
+  spin:   {name:'스피닝 토스',  dmgM:1.0,  exec:.40, total:.82},   // 돌려서 앞으로 던지기
+  suplex: {name:'백 드롭',      dmgM:1.15, exec:.46, total:.92},   // 뒤로 꽂기
+  slam:   {name:'파일 드라이버', dmgM:1.3,  exec:.46, total:.92}    // 내리 꽂기
+};
+const AIR = ['jump','jpunch','jkick','stomp'];
 const GROUND_ATK = ['punch','punch2','kick','chainkick','cpunch','ckick','dashpunch','dashkick'];
 const CROUCHED = ['crouch','cpunch','ckick'];
 
@@ -819,6 +827,34 @@ function poseFor(f, time){
       else { const k=Math.min(1,(t-a.su-a.ac)/a.rc); P.lRh=-1.7+1.4*k; P.lRk=.02+.3*k; P.bl=-.35+.4*k; P.by+=.22*(1-k); P.lLk=.9*(1-k); }
       break;
     }
+    case 'stomp':      // 내려찍기 — 두 발 모아 발바닥부터 낙하
+      P.lLh=-.15; P.lRh=-.15; P.lLk=.08; P.lRk=.08; P.aLs=-2.4; P.aRs=-2.4; P.aLe=-.2; P.aRe=-.2;
+      P.bl=.06; P.hd=-.1; break;
+    case 'roll': {     // 기상 구르기 — 몸을 말아 회전
+      const k=Math.min(1,t/.46);
+      P.by=.45+.18*Math.sin(k*Math.PI);
+      P.bl = -2*Math.PI*k * ((f.rollDir<0)?-1:1);
+      P.lLh=-1.5; P.lRh=-1.5; P.lLk=2.0; P.lRk=2.0;
+      P.aLs=-1.7; P.aRs=-1.7; P.aLe=-2.0; P.aRe=-2.0; P.hd=-.35; break;
+    }
+    case 'throw': {    // 잡기 — 종류별 동작
+      const T = THROW[f.thrType] || {exec:.42,total:.85};
+      if(t < T.exec){  // 잡아서 들어올림
+        const k=Math.min(1,t/T.exec);
+        P.aLs=-1.5-.4*k; P.aRs=-1.5-.4*k; P.aLe=-.5+.2*k; P.aRe=-.5+.2*k; P.bl=.18-.1*k;
+        if(f.thrType==='suplex'){ P.bl=-.25*k; P.by+=.05*k; }
+        if(f.thrType==='slam'){ P.aLs=-2.7*k-.4; P.aRs=-2.7*k-.4; P.by+=.04*k; }
+      } else {         // 내던짐
+        const k=Math.min(1,(t-T.exec)/Math.max(.01,T.total-T.exec));
+        if(f.thrType==='suplex'){ P.bl=-1.3+.7*k; P.aLs=-2.8; P.aRs=-2.8; P.hd=-.3; }
+        else if(f.thrType==='slam'){ P.bl=.35*Math.sin(k*Math.PI); P.aLs=-2.7+2.2*k; P.aRs=-2.7+2.2*k; }
+        else { P.bt=-Math.PI*1.2*k; P.aLs=-1.55; P.aRs=-1.55; P.aLe=-.2; P.aRe=-.2; }
+      }
+      break;
+    }
+    case 'thrown':     // 잡힌 쪽 — 축 늘어져 들림/날아감
+      P.bl=-1.25; P.by=.55; P.aLs=-2.6; P.aRs=-2.6; P.aLe=-.3; P.aRe=-.3;
+      P.lLh=-.3; P.lRh=-.45; P.lLk=.7; P.lRk=.8; P.hd=-.45; break;
     case 'kick': case 'chainkick': {
       const a = ATK[f.state];
       if(t<a.su){ const k=t/a.su; P.lRh=-.32-1.2*k; P.lRk=.32+1.4*k; P.bl=-.05; P.by-=.04*k; }
@@ -884,7 +920,7 @@ function poseFor(f, time){
 }
 function applyPose(f, dt, time){
   const P = poseFor(f, time);
-  const fast = GROUND_ATK.includes(f.state) || AIR.includes(f.state) || f.state==='sp' || f.state==='hit' || f.state==='crouch' || f.state==='win';
+  const fast = GROUND_ATK.includes(f.state) || AIR.includes(f.state) || f.state==='sp' || f.state==='throw' || f.state==='thrown' || f.state==='roll' || f.state==='hit' || f.state==='crouch' || f.state==='win';
   const k = 1 - Math.exp(-dt*(fast?24:11));
   const p = f.parts;
   const L = (o,prop,v)=>{ o[prop] += (v-o[prop])*k; };
@@ -985,6 +1021,15 @@ function updateAI(f, foe, dt){
   if(f.state==='punch2' && f.hitDone && f.stateT > ATK.punch2.su+ATK.punch2.ac*.5 && Math.random()<.85){ i.kick=true; return; }
   if(f.state==='jump' && f.vy < 1.2 && dist < 2.6){ i.kick = Math.random()<.6; i.punch = !i.kick; return; }
   if(AIR.includes(f.state)){ if(foe.x>f.x) i.right=true; else i.left=true; return; }
+  if(f.state==='down'){                                  // 기상 선택: 공격/구르기
+    if(f.y<=0 && f.stateT>0.42 && Math.random()<0.10){
+      const r=Math.random();
+      if(r<.35) i.kick=true;                              // 기상 발
+      else if(r<.55) i.punch=true;                        // 기상 손
+      else { if(foe.x>f.x) i.left=true; else i.right=true; } // 뒤로 구르기
+    }
+    return;
+  }
   if(f.state==='crouch'){
     i.down = true;
     if(ai.cmd==='sweep'){ i.kick=true; ai.cmd='wait'; }
@@ -1034,6 +1079,14 @@ function startSpecial(f, mv){
   sfx.whiff(); if(mv.tpl==='uppercut'||mv.tpl==='knee') beep(520,.12,'square',.05,260);
   flashMove(f, mv.name);
 }
+function startThrow(att, vic, type){      // vic=null이면 잡기 헛손질
+  att.state='throw'; att.stateT=0; att.thrType=type; att.grabFoe=vic||null; att.hitDone=false; att.buf=null;
+  if(vic){
+    vic.state='thrown'; vic.stateT=0; vic.grabbedBy=att; vic.vx=0; vic.vy=0; vic.buf=null;
+    vic.facing = -att.facing;
+    flashMove(att, THROW[type].name); beep(150,.1,'square',.06,90);
+  } else { sfx.whiff(); }
+}
 function registerCombo(victim){
   victim.comboN = victim.comboT > 0 ? victim.comboN+1 : 1;
   victim.comboT = 1.0;
@@ -1048,7 +1101,9 @@ function registerCombo(victim){
 }
 function tryHit(f, foe, a){
   const dist = Math.abs(f.x-foe.x);
-  const foeHittable = !(foe.state==='down'||foe.state==='getup'||foe.state==='fall');
+  // 구르기·잡힌 상태는 무적. oki기술(내려찍기)은 다운/폴 상태도 맞힘
+  const grounded = foe.state==='down'||foe.state==='getup'||foe.state==='fall';
+  const foeHittable = (foe.state==='roll'||foe.state==='thrown') ? false : (a.oki ? true : !grounded);
   if(dist >= a.range || !foeHittable) return;
   if(a.high && CROUCHED.includes(foe.state)) return;     // 펀치는 앉으면 빗나감
   f.hitDone = true;
@@ -1073,6 +1128,15 @@ function tryHit(f, foe, a){
 
 function controlFighter(f, foe, dt){
   const i = f.input, st = f.state;
+  // 잡힌 상태 — 입력/물리 무시, 위치는 잡은 쪽이 제어
+  if(st==='thrown'){
+    f.stateT += dt;
+    f.root.position.set(f.x, f.y, 0);
+    f.root.rotation.y = f.facing===1 ? Math.PI/2 : -Math.PI/2;
+    f.shadow.position.x = f.x; f.shadow.visible = f.y>-1.2;
+    f.shadow.scale.setScalar(Math.max(.4, 1-f.y*.35));
+    return;
+  }
   const canAct = (st==='idle'||st==='walk'||st==='guard');
   const airborne = AIR.includes(st);
 
@@ -1086,7 +1150,12 @@ function controlFighter(f, foe, dt){
     const M = f.moves || {};
     if(i.up && !f.prev.up){ f.state='jump'; f.stateT=0; f.vy=5.7; sfx.jump(); }
     else if(i.punch && !f.prev.punch){                               // 손(J) 조합
-      if(i.guard && M.gp) startSpecial(f, M.gp);                     // 가드+손 = 잡기
+      if(i.guard){                                                   // 가드+손 = 잡기(근접시 성립)
+        const close = Math.abs(f.x-foe.x) < 1.25;
+        const grabbable = ['idle','walk','guard','crouch','hit'].includes(foe.state);
+        const type = back ? 'suplex' : (i.down ? 'slam' : 'spin');   // 뒤=뒤로꽂기, 아래=내리꽂기, 기본=돌려던지기
+        startThrow(f, (close && grabbable && phase==='fight') ? foe : null, type);
+      }
       else if(fwd && M.fp) startSpecial(f, M.fp);                    // 앞+손 = 특수
       else if(back && M.bp) startSpecial(f, M.bp);                   // 뒤+손
       else if(i.left||i.right) startAttack(f,'dashpunch');
@@ -1123,16 +1192,20 @@ function controlFighter(f, foe, dt){
     f.x += dir*2.7*dt;
     if(f.state==='jpunch') f.x += f.facing*1.4*dt;
     if(f.state==='jkick')  f.x += f.facing*2.2*dt;
+    if(f.state==='stomp'){ f.x += Math.sign(foe.x-f.x)*Math.min(Math.abs(foe.x-f.x), 5*dt); } // 다운된 적 위로
     f.x = Math.max(-RINGX, Math.min(RINGX, f.x));
     if(f.state==='jump'){
-      if(i.punch && !f.prev.punch){ f.state='jpunch'; f.stateT=0; f.hitDone=false; sfx.whiff(); }
-      else if(i.kick && !f.prev.kick){ f.state='jkick'; f.stateT=0; f.hitDone=false; sfx.whiff(); }
+      const foeDown = foe.state==='down'||foe.state==='fall';
+      if(i.punch && !f.prev.punch){ f.state = foeDown?'stomp':'jpunch'; f.stateT=0; f.hitDone=false; sfx.whiff(); }
+      else if(i.kick && !f.prev.kick){ f.state = foeDown?'stomp':'jkick'; f.stateT=0; f.hitDone=false; sfx.whiff(); }
     }
-    f.vy -= 13*dt; f.y += f.vy*dt;
-    if(f.y <= 0 && f.vy < 0){ f.y=0; f.vy=0; f.state='idle'; f.stateT=0; }
+    f.vy -= (f.state==='stomp'?20:13)*dt; f.y += f.vy*dt;       // 내려찍기는 빠르게 낙하
+    if(f.state==='stomp' && !f.hitDone && f.y<1.3) tryHit(f, foe, ATK.stomp);
+    if(f.y <= 0 && f.vy < 0){ f.y=0; f.vy=0;
+      if(f.state==='stomp'){ spark(f.x,.15,0xd8c088,.45); shake=Math.max(shake,.25); }
+      f.state='idle'; f.stateT=0; }
   }
 
-  f.prev.punch=i.punch; f.prev.kick=i.kick; f.prev.up=i.up;
   f.stateT += dt;
 
   // 지상 공격: 전진 러시 + 판정 + 체인 캔슬
@@ -1167,11 +1240,52 @@ function controlFighter(f, foe, dt){
     const a = ATK[f.state];
     if(!f.hitDone && f.stateT>a.su && f.y>.05 && f.y<1.6) tryHit(f, foe, a);
   }
+  // 잡기(던지기) 실행 — 들어올렸다가 종류별로 내던짐
+  if(f.state==='throw'){
+    const vic = f.grabFoe, T = THROW[f.thrType] || THROW.spin;
+    if(vic){
+      if(f.stateT < T.exec){                                  // 잡아서 들어올림
+        const lift = Math.min(1, f.stateT/T.exec);
+        vic.x = f.x + f.facing*0.58; vic.y = 0.2 + lift*0.95; vic.vx=0; vic.vy=0;
+        f.x = Math.max(-RINGX, Math.min(RINGX, f.x));
+      } else if(!f.hitDone){                                  // 내던지기 판정
+        f.hitDone = true;
+        const dir = f.facing, base = (f.moves && f.moves.gp ? f.moves.gp.dmg : 15);
+        vic.hp = Math.max(0, vic.hp - base*T.dmgM*f.stats.pow);
+        if(f.thrType==='suplex'){ vic.x = f.x - dir*0.8; vic.vx = -dir*7; vic.vy = 4.6; }   // 뒤로 꽂기
+        else if(f.thrType==='slam'){ vic.x = f.x + dir*0.5; vic.vx = 0; vic.vy = 2.2; vic.y = Math.max(vic.y,1.0); } // 내리꽂기
+        else { vic.x = f.x + dir*0.9; vic.vx = dir*11; vic.vy = 4.8; }                       // 돌려 던지기
+        vic.state='down'; vic.stateT=0; vic.grabbedBy=null; vic.facing=-dir;
+        spark((f.x+vic.x)/2,.6,0xf8d820,.4); spark(vic.x,.3,0xff5530,.3);
+        sfx.hit(); shake=.45; hitPause=.1; registerCombo(vic);
+        if(vic.hp<=0 && phase==='fight') triggerKO(f, vic, 'K.O.');
+      }
+    }
+    if(f.stateT > T.total){ f.state='idle'; f.stateT=0; f.grabFoe=null; f.thrType=null; }
+  }
+  // 기상 구르기
+  if(f.state==='roll'){
+    f.x += (f.rollDir||0) * 6.5 * dt;
+    f.x = Math.max(-RINGX, Math.min(RINGX, f.x));
+    if(f.stateT > .46){ f.state='idle'; f.stateT=0; }
+  }
 
   if(f.state==='hit' && f.stateT>.36){ f.state='idle'; f.stateT=0; }
   if(f.state==='down'){
     if(f.y > 0){ f.vy -= 13*dt; f.y = Math.max(0, f.y+f.vy*dt); if(f.y===0) f.vy=0; }
-    if(f.stateT>1.0 && f.hp>0 && f.y<=0 && phase==='fight'){ f.state='getup'; f.stateT=0; }
+    const ready = f.y<=0 && f.stateT>0.4 && f.hp>0 && phase==='fight';
+    if(ready){
+      f.facing = foe.x >= f.x ? 1 : -1;
+      const back = (i.left && f.facing>0) || (i.right && f.facing<0);
+      const fwd  = (i.right && f.facing>0) || (i.left && f.facing<0);
+      if(i.punch && !f.prev.punch){ f.y=0; startAttack(f,'punch'); }        // 기상 손공격
+      else if(i.kick && !f.prev.kick){ f.y=0; startAttack(f,'kick'); }      // 기상 발공격
+      else if(i.left||i.right||i.up||i.down){                               // 기상 구르기
+        f.rollDir = fwd ? f.facing : (back ? -f.facing : 0);
+        f.state='roll'; f.stateT=0;
+      }
+      else if(f.stateT>1.0){ f.state='getup'; f.stateT=0; }
+    }
   }
   if(f.state==='getup' && f.stateT>.45){ f.state='idle'; f.stateT=0; }
 
@@ -1205,10 +1319,12 @@ function controlFighter(f, foe, dt){
   f.shadow.scale.setScalar(f.state==='fall' ? .6 : sc);
   f.root.position.set(f.x, f.y, 0);
   f.root.rotation.y = f.facing===1 ? Math.PI/2 : -Math.PI/2;
+
+  f.prev.punch=i.punch; f.prev.kick=i.kick; f.prev.up=i.up;   // 엣지 감지용 (모든 상태 처리 후)
 }
 
 function separate(a,b){
-  if(['fall','down'].includes(a.state)||['fall','down'].includes(b.state)) return;
+  if(['fall','down','throw','thrown','roll','getup'].includes(a.state)||['fall','down','throw','thrown','roll','getup'].includes(b.state)) return;
   if(AIR.includes(a.state)||AIR.includes(b.state)) return;
   const d = b.x-a.x, min = .82;
   if(Math.abs(d) < min){
@@ -1501,17 +1617,19 @@ loop();
 // ── 디버그: 8인 모델 한 장으로 렌더 (검증용)
 window.__VF = { THREE, scene, ROSTER, MOVES, keys,
   readInput:()=>{ readP1(); return JSON.parse(JSON.stringify(P1.input)); },
-  testCmd:(cmd)=>{   // 'FP'(앞+손) 'FK'(앞+발) 'BP' 'BK' 'GP'(가드+손) 'P' 'K' 등
-    P1.x=-1; P2.x=1; P1.y=0; P1.state='idle'; P1.stateT=0; P1.facing=1; P1.mv=null;
+  testCmd:(spec)=>{   // {press:'GP'|'P'|'K'.., dir:'F'|'B'|'U'|'D', gap, self:'idle'|'down'|'jump', foe:'idle'|'down'}
+    spec=spec||{}; const savePhase=phase; phase='fight';
+    const g=spec.gap==null?0.6:spec.gap;
+    P1.x=-g/2; P2.x=g/2; P1.facing=1; P1.mv=null; P1.thrType=null; P1.grabFoe=null;
+    P2.y=0; P2.state=spec.foe||'idle'; P2.stateT=0.5;
+    P1.state=spec.self||'idle'; P1.stateT=0.6; P1.y=(P1.state==='jump')?1.5:0; if(P1.state==='jump') P1.vy=0;
     const i=P1.input; for(const k in i) i[k]=false;
-    if(cmd.indexOf('F')>=0) i.right=true;
-    if(cmd.indexOf('B')>=0) i.left=true;
-    if(cmd.indexOf('G')>=0) i.guard=true;
-    if(cmd.indexOf('P')>=0) i.punch=true;
-    if(cmd.indexOf('K')>=0) i.kick=true;
+    const d=spec.dir||''; if(d==='F')i.right=true; if(d==='B')i.left=true; if(d==='U')i.up=true; if(d==='D')i.down=true;
+    const p=spec.press||''; if(p.indexOf('G')>=0)i.guard=true; if(p.indexOf('P')>=0)i.punch=true; if(p.indexOf('K')>=0)i.kick=true;
     P1.prev.punch=false; P1.prev.kick=false; P1.prev.up=false;
     controlFighter(P1,P2,0.016);
-    return {state:P1.state, move:P1.mv&&P1.mv.name};
+    const res={p1:P1.state, thr:P1.thrType||null, move:(P1.mv&&P1.mv.name)||null, p2:P2.state};
+    phase=savePhase; return res;
   } };
 window.__contact = function(pose, idxs, camZ, camY){
   P1.root.visible=false; P2.root.visible=false; P1.shadow.visible=false; P2.shadow.visible=false;
@@ -1522,7 +1640,10 @@ window.__contact = function(pose, idxs, camZ, camY){
     if(pose && pose.indexOf('sp:')===0){           // 'sp:fp' 등 특수기술 발동 프레임
       const key=pose.slice(3); const mv=f.moves[key];
       f.state='sp'; f.mv=mv; f.stateT = mv ? mv.su+mv.ac*0.55 : 0;
-    } else { f.state=pose||'idle'; f.stateT=0; }
+    } else if(pose && pose.indexOf('throw:')===0){  // 'throw:spin' 등 던지는 프레임
+      const ty=pose.slice(6); f.state='throw'; f.thrType=ty; f.stateT=(THROW[ty].exec+THROW[ty].total)/2;
+    } else if(pose==='roll'){ f.state='roll'; f.rollDir=1; f.stateT=0.18; }
+    else { f.state=pose||'idle'; f.stateT=0; }
     for(let k=0;k<40;k++) applyPose(f,.1,0.3);
     temps.push(f);
   });
